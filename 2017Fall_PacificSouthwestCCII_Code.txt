@@ -1,0 +1,907 @@
+var l5 = ee.ImageCollection("LANDSAT/LT5_L1T_TOA_FMASK"),
+    l8 = ee.ImageCollection("LANDSAT/LC8_L1T_TOA_FMASK"),
+    l7 = ee.ImageCollection("LANDSAT/LE7_L1T_TOA_FMASK"),
+    sentinel = ee.ImageCollection("COPERNICUS/S2");
+
+///US Fish and Wildlife Service Change Detection Tool///
+////////////////by: NASA DEVELOP///////////////////////
+
+//a visual describing our product//
+/*                                                                          ,aa,       ,aa
+                                                                           d"  "b    ,d",`b
+                                                                         ,dP a  "b,ad8' 8 8
+                                                                         d8' 8  ,88888a 8 8
+                                                                        d8baa8ba888888888a8
+                                                                     ,ad888888888YYYY888YYY,
+                                                                  ,a888888888888"   "8P"  "b
+                                                              ,aad8888tt,8888888b (0 `8, 0 8
+                          ____________________________,,aadd888ttt8888ttt"8"I  "Yb,   `Ya  8
+                    ,aad8888b888888aab8888888888b,     ,aatPt888ttt8888tt 8,`b,   "Ya,. `"aP
+                ,ad88tttt8888888888888888888888888ttttt888ttd88888ttt8888tt,t "ba,.  `"`d888
+             ,d888tttttttttttttt888888888888888888888888ttt8888888888ttt888ttt,   "a,   `88'
+            a888tttttttttttttttttttttttttt8888888888888ttttt88888ttt888888888tt,    `""8"'
+           d8P"' ,tttttttttttttttttttttttttttttttttt88tttttt888tttttttt8a"8888ttt,   ,8'
+          d8tb  " ,tt"  ""tttttttttttttttttttttttttttttttttt88ttttttttttt, Y888tt"  ,8'             <---- helping wolves like these...
+          88tt)              "t" ttttt" """  """    "" tttttYttttttttttttt, " 8ttb,a8'
+          88tt                    `"b'                  ""t'ttttttttttt"t"t   t taP"
+          8tP                       `b                       ,tttttt' " " "tt, ,8"
+         (8tb  b,                    `b,                 a,  tttttt'        ""dP'
+         I88tb `8,                    `b                d'   tttttt        ,aP"
+         8888tb `8,                   ,P               d'    "tt "t'    ,a8P"
+        I888ttt, "b                  ,8'              ,8       "tt"  ,d"d"'
+       ,888tttt'  8b               ,dP""""""""""""""""Y8        tt ,d",d'
+     ,d888ttttP  d"8b            ,dP'                  "b,      "ttP' d'
+   ,d888ttttPY ,d' dPb,        ,dP'      Pacific         "b,     t8'  8
+  d888tttt8" ,d" ,d"  8      ,d"'       Southwest         `b     "P   8
+ d888tt88888d" ,d"  ,d"    ,d"        Cross-cutting        8      I   8
+d888888888P' ,d"  ,d"    ,d"                II             8      I   8
+88888888P' ,d"   (P'    d"                                 8      8   8
+"8P"'"8   ,8'    Ib    d"                                  Y      8   8
+      8   d"     `8    8                                   `b     8   Y
+      8   8       8,   8,                                   8     Y   `b
+      8   Y,      `b   `b                                   Y     `b   `b
+      Y,   "ba,    `b   `b,                                 `b     8,   `"ba,
+       "b,   "8     `b    `""b                               `b     `Yaa,adP'
+         """""'      `baaaaaaP                                `YaaaadP"'
+
+                                                                                                
+
+             .       .                   .       .      .     .      .
+            .    .         .    .            .     _______
+        .           .             .               ////////
+                  .    .   ________   .  .      /////////     .    .
+             .            |.____.  /\        ./////////    .
+      .                 .//      \/  |\     /////////
+         .       .    .//          \ |  \ /////////       .     .   .
+                      ||.    .    .| |  ///////// .     .
+       .    .         ||           | |//`,/////                .                                <---- using tools like this...
+               .       \\        ./ //  /  \/   .
+    .                    \\.___./ //\` '   ,_\     .     .
+            .           .     \ //////\ , /   \                 .    .
+                         .    ///////// \|  '  |    .
+        .        .          ///////// .   \ _ /          .
+                          /////////                              .
+                   .   ./////////     .     .
+           .           ---------   .                  ..             .
+    .               .        .         .                       .
+                          ________________________
+  ____________------------                        -------------_________
+*/
+
+//This script allows a user to detect land use change in Habitat Conservation Plan areas in California, Nevada, and Oregon
+//It calculates relative green to detect changes in the landscape to help the USFWS better target field visits
+//The tool requires imports that include the Landsat 5, 7, and 8 TOA Reflectance with Fmask collections, and Sentinel-2 MSI
+
+//BEGIN importing the HCP area polygons//
+//We will use these polygons throughout the script to filterBounds and clip raster data to//
+//Import fusion table that includes Habitat Conservation Plan boundaries
+var fc = ee.FeatureCollection("ft:1XPuR1Ed50oFQsww3bZfXIk7nz9sQh-D19A9mWU3D");
+
+//Create array of HCP names so that they are searchable
+var names = fc.aggregate_array('name');
+//END importing the HCP area polygons//
+
+//BEGIN the creation of a merged imageCollection that allows us to access imagery from 1984-2017//
+//Step 1: Create merged collection from Landsat 5, 7, & 8 and Sentinel-2
+
+//Create mergeCollection function    
+    var mergeCollection = function() {
+    // list the bands as described in the metadata for each specific satelitte
+    var l5names = ee.List(["B1","B2","B3","B4","B5","B6","B7","fmask"]);
+    var l7names = ee.List(["B1","B2","B3","B4","B5","B6_VCID_1","B6_VCID_2","B7","B8","fmask"]);
+    var l8names = ee.List(["B1","B2","B3","B4","B5","B6","B7","B8","B9","B10","B11","BQA", "fmask"]);
+    var snames = ee.List(["B1","B2","B3","B4","B5","B6","B7","B8","B8A","B11","B12", 'QA60']);
+     
+    // list the common band names which will allow us to easily merge the bands
+    var l5Bands = ee.List(['blue','green','red','nir','swir1','tir','swir2','fmask']);
+    var l7Bands = ee.List(['blue','green','red','nir','swir1','tir1', 'tir2', 'swir2','pan','fmask']);
+    var l8Bands = ee.List(['b1','blue','green','red','nir','swir1','swir2','cir','tir1','tir2','pan','BQA', 'fmask']);
+    var sBands = ee.List(['aerosols','blue','green','red','red_edge1','red_edge2','red_edge3','nir','red_edge4','swir1','swir2', 'QA60']);
+    
+    //create a cloud masking function for Landsat
+    var applyMask = function(image) {
+      return image.updateMask(image.select('fmask').lt(2));};
+    
+    //create a cloud masking function for Sentinel-2
+    var sentMask = function(im) {
+    // Opaque and cirrus cloud masks cause bits 10 and 11 in QA60 to be set, so values less than 1024 are cloud-free
+      var mask = ee.Image(0).where(im.select('QA60').gte(1024), 1).not();
+      return im.updateMask(mask);
+      };
+    
+    //BEGIN the creation of new bands to add to our merged imageCollection//
+    //create NDVI function
+    var NDVI;
+    var makeNDVI = function(image){
+      NDVI = image.normalizedDifference(['nir', 'red']).rename('NDVI');
+      //print('done with NDVI');
+      return image.addBands(NDVI);
+      };
+    
+    //create NBR function
+    var makeNBR = function(image){
+      var NBR = image.normalizedDifference(['nir', 'swir2']).rename('NBR');
+      //print('finished NBR');
+      return image.addBands(NBR);
+      };
+    //END the creation of new bands to add to merged imageCollection//
+    
+    // Change the bands to common band names so that they are searchable across the different collections
+    var l5images = l5.select(l5names, l5Bands)
+      .map(applyMask)
+      .map(makeNDVI)
+      .map(makeNBR);
+    var l7images = l7.select(l7names, l7Bands)
+      .map(applyMask)
+      .map(makeNDVI)
+      .map(makeNBR);
+    var l8images = l8.select(l8names, l8Bands)
+      .map(applyMask)
+      .map(makeNDVI)
+      .map(makeNBR);
+    var sentImages = sentinel.select(snames, sBands)
+      .map(sentMask)
+      .map(makeNDVI)
+      .map(makeNBR);
+    
+    //create merged collection from Landsat 5, 7, & 8 and Sentinel-2
+    var myCollection = ee.ImageCollection(l5images.merge(l7images.merge(l8images.merge(sentImages))));
+      return myCollection;
+};
+
+//by creating this next variable, we are able to call the collection outside of the function
+//create LandsatCollection by calling mergeCollection function
+ LandsatCollection = mergeCollection();
+//END the creation of a merged imageCollection that allows us to access imagery from 1984-2017//
+
+
+//BEGIN the creation of the drop down menu which allows the user to select the HCP, and the creation of the baseline which our analyses will compare against//
+//Step 2: Create selection widget that subsets the spatial extent to a HCP selection and creates the NDVI baseline for the relative greenness analysis
+
+//create variables that are accessible by other widgets; created outside of the function to make them global variables
+var col;
+var byMonthmax;
+var byMonthmin;
+var LandsatCollection;
+var conversion;
+
+//Create HCP selection widget that searches fusion table by array of names
+var select = ui.Select({
+  items: names.getInfo(),
+  placeholder: ('Choose Area of Interest'),
+  style: {width: '290px'},
+  onChange: function(key) {
+    Map.clear(); //clears previous calculations from map upon new selection
+    var selection = ee.Feature(fc.filter(ee.Filter.eq('name', key)).first());
+    Map.centerObject(selection); //centers map on HCP selection
+    // show HCP
+    var layer = ui.Map.Layer(selection, {color:'blue'}, 'HCP');
+    Map.layers().set(0, layer); //adds HCP selection to the map
+    conversion = ee.FeatureCollection(selection); //converts the HCP selection into a feature collection for future analyses
+  
+  //BEGIN NDVI Baseline creation for Relative Greenness//
+  //Create NDVI baseline variable by filtering LandsatCollection by date and spatial resolution
+  var NDVIbaseline = ee.ImageCollection(LandsatCollection.filterDate('2000-01-01', '2010-12-31') //filter date to 2000-2010
+    .filterBounds(conversion) //filter spatially to HCP selection
+    .select('NDVI')); //select NDVI band
+  //End NDVI Baseline creation for Relative Greenness//
+  
+  //In addition to NDVI baseline, Relative Greenness requires a baseline min and max
+  //Create list of months for min and max collections
+  var months = ee.List.sequence(1,12);
+
+  //create monthly NDVI minimums
+  byMonthmin = ee.ImageCollection.fromImages(
+  months.map(function (m) { //for each month in baseline, calculate min NDVI value
+    return NDVIbaseline.filter(ee.Filter.calendarRange(m, m, 'month'))
+      .select('NDVI').min()
+      .set('month', m);
+      }));
+
+  //create monthly NDVI maximums
+  byMonthmax = ee.ImageCollection.fromImages(
+  months.map(function (m) { //for each month in baseline, calculate max NDVI value
+    return NDVIbaseline.filter(ee.Filter.calendarRange(m, m, 'month'))
+      .select('NDVI').max()
+      .set('month', m);
+      }));
+
+  //Set the month and year properties in metadata so that they are searchable later
+  var NDVIBaselinetest = NDVIbaseline.map(function(img) { 
+  img = img.clip(conversion);
+  var d = ee.Date(ee.Number(img.get('system:time_start')));
+    var m = ee.Number(d.get('month'));
+    var y = ee.Number(d.get('year'));
+    return img.set({'month':m, 'year':y});
+    });
+  }
+});
+//END the creation of the drop down menu which allows the user to select the HCP, and the creation of the baseline which our analyses will compare against//
+
+//BEGIN Relative Greeness calculations//
+//Step 3: Calculate Relative Greenness based on NDVI baseline, min, and max from Step 2
+
+//create year and month selection textboxes
+var selectYr = ui.Textbox({placeholder: 'Year',  value: '2016',
+    style: {width: '100px'}}); //defaults to 2016, textbox displays ‘Year’ if textbox is empty 
+var selectMnth = ui.Textbox({placeholder: 'Month', value: '2',
+    style: {width: '100px'}});
+    
+//Create final Relative Greenness variable
+var ndviRelGre;
+//user needs to select month and year of interest from 2010-2017
+//create year and month variables
+var yr;
+var mnth;
+//Create widget that applies temporal selection and loads Relative Greenness to map
+var load = ui.Button({
+  label: ('Calculate Relative Greenness'), //adds button label
+  onClick: function()
+  {
+  //create function that will parse textbox inputs into Relative Greenness equations
+  function fillTextbox(){
+  //assign the varible 'yr' to the current string in the selectYr textbox 
+  yr = selectYr.getValue();
+  // if 'yr' is 'yr' then turn that string into a number
+  if (yr) yr = ee.Number.parse(yr);
+  mnth = selectMnth.getValue();
+  if (mnth) mnth = ee.Number.parse(mnth);
+  }
+  //run fillTextbox function
+  fillTextbox();
+  
+  //Next, create a current NDVI collection to use in Relative Greenness equation - this will be used when selecting current time of interest
+  var NDVICurrent = ee.ImageCollection(LandsatCollection.filterDate('2010-01-01', '2017-12-31') //filter date to 2000-2010
+    .filterBounds(conversion) //filter to HCP selection
+    .select('NDVI')); //select NDVI
+
+  //Set the month and year properties in metadata so that they are searchable later
+  var NDVICurrenttest = NDVICurrent.map(function(img) { 
+  img = img.clip(conversion);
+  var d = ee.Date(ee.Number(img.get('system:time_start')));
+    var m = ee.Number(d.get('month'));
+    var y = ee.Number(d.get('year'));
+    return img.set({'month':m, 'year':y});
+    });
+  
+  //Create filterBaseLine function that filters NDVI collections to month and year selection and outputs Relative Greenness
+  var filterBaseLine = function(year, month, conversion){
+  // calculates the current NDVI filtered by input year and month
+  var ndvi_cur = ee.Image(NDVICurrenttest
+      .filterMetadata('year', 'equals', year) //filter by year of interest
+      .filterMetadata('month', 'equals', month) //filter by month of interest
+      .filterBounds(conversion) //filter to HCP selection
+      .mean());
+  
+  //Filters baseline min and max by input month, reduced using mean
+  var min_ndvi =  ee.Image(byMonthmin
+      .filterMetadata('month', 'equals', month) //filter by month of interest
+      .filterBounds(conversion) //filter to HCP selection
+      .min());
+
+  var max_ndvi =  ee.Image(byMonthmax
+      .filterMetadata('month', 'equals', month) //filter by month of interest
+      .filterBounds(conversion) //filter to HCP selection
+      .max());
+
+  //The relative greeness equation (current - min / max - min)
+  ndviRelGre = ndvi_cur.subtract(min_ndvi).divide(max_ndvi.subtract(min_ndvi));
+  }; //finish filterBaseLine
+
+  //call the function with year, month, and HCP selection as inputs
+  filterBaseLine(yr, mnth, conversion);
+  
+  //add Relative Greenness to map
+  Map.addLayer(ndviRelGre.clip(conversion),{min:0, max:1, palette: ['f1a340', 'FFFFFF', '556B2F']},'Relative Green');
+  var relgreencol = ee.ImageCollection(ndviRelGre); //adds final result to image collection for export function
+  col = ee.ImageCollection(relgreencol); //merges with col variable
+  
+  //generate chart ndvi
+  //Currently trying to figure out how to point this towards our ndvi data and our selected month/year
+  var startdate = ee.Date.fromYMD(yr, 1, 1);
+  var enddate = ee.Date.fromYMD(yr.add(1), 1, 1);
+  
+  //use our merged Landsat Collection
+  var NDVIchartdoi = ee.ImageCollection(LandsatCollection.filterDate(startdate, enddate));
+  var ndviChart = ui.Chart.image.doySeriesByYear(
+  NDVIchartdoi, 'NDVI', conversion, ee.Reducer.mean(), 500);
+  
+  panel.widgets().set(9, ndviChart);
+    }
+  }  
+);
+//END Relative Greeness calculations//
+
+//BEGIN make a legend for Relative Greenness that is added to the user interface//
+//list visualization parameters
+var LGND = {"opacity":1,"min":-90,"max":60,
+      "palette":['f1a340', 'FFFFFF', '556B2F']};
+      
+//make a function for displaying Relative Greenness legend
+function makeLegend(vis) {
+    var lon = ee.Image.pixelLonLat().select('longitude');
+    var gradient = lon.multiply((vis.max-vis.min)/100.0).add(vis.min);
+    var legendImage = gradient.visualize(vis);
+   
+    //Coefficient legend
+    var thumb = ui.Thumbnail({
+      image: legendImage, 
+      params: {bbox:'0,0,100,8', dimensions:'300x15'},  
+      style: {position: 'bottom-center'}
+    });
+    var text = ui.Panel({
+      widgets: [
+        ui.Label(String('Historical Minimum')),
+        ui.Label({style: {stretch: 'horizontal'}}),
+        ui.Label(String('Historical Maximum')),
+      ],
+      layout: ui.Panel.Layout.flow('horizontal'),
+      style: {
+        padding: '0px',
+        stretch: 'horizontal',
+        fontSize: '12px', 
+        color: 'gray',
+        textAlign: 'center'
+      }
+    });
+    
+    return ui.Panel({style:{position: 'bottom-left'}})
+      .add(text).add(thumb);
+  }
+//END make a legend for Relative Greenness//
+
+//BEGIN calculating percent change in Relative Greenness//
+//Create percent change in Relative Greenness variables
+var pastRelGre;
+var changeRelGreen;
+
+//Create widget that applies temporal selection and loads percent change in Relative Greenness to map
+var percentChange = ui.Button({
+  label: ('Calculate Percent Change in Relative Greenness'), //adds button label
+  onClick: function()
+  {
+  //user needs to select month and year of interest from 2010-2017
+  //create year and month variables
+  var yr;
+  var mnth;
+  //create function that will parse textbox inputs into Relative Greenness equations
+  function fillTextbox(){
+  //assign the varible 'yr' to the current string in the selectYr textbox 
+  yr = selectYr.getValue();
+  // if 'yr' is 'yr' then turn that string into a number
+  if (yr) yr = ee.Number.parse(yr);
+  mnth = selectMnth.getValue();
+  if (mnth) mnth = ee.Number.parse(mnth);
+  }
+  //run fillTextbox function
+  fillTextbox();
+  
+  //creates variable for year prior to year of interest
+  var prevYr = yr.subtract(1);
+  
+  //Next, create a previous year NDVI collection to use in percent change in Relative Greenness equation
+  var NDVICurrent = ee.ImageCollection(LandsatCollection.filterDate('2010-01-01', '2017-12-31') //filter date to 2000-2010
+    .filterBounds(conversion) //filter to HCP selection
+    .select('NDVI')); //select NDVI
+
+  //Set the month and year properties in metadata so that they are searchable later
+  var NDVICurrenttest = NDVICurrent.map(function(img) { 
+  img = img.clip(conversion);
+  var d = ee.Date(ee.Number(img.get('system:time_start')));
+    var m = ee.Number(d.get('month'));
+    var y = ee.Number(d.get('year'));
+    return img.set({'month':m, 'year':y});
+    });
+  
+  //Create filterBaseLine function that filter NDVI collections to month and year selection and outputs for previous year Relative Greenness
+  var filterBaseLine = function(year, month, conversion){
+  // calculates the current NDVI filtered by input year and month
+  var ndvi_past = ee.Image(NDVICurrenttest
+      .filterMetadata('year', 'equals', year) //filter by year of interest
+      .filterMetadata('month', 'equals', month) //filter by month of interest
+      .filterBounds(conversion) //filter to HCP selection
+      .mean());
+  
+  //Filters baseline min and max by input month, reduced using mean
+  var pastmin_ndvi =  ee.Image(byMonthmin
+      .filterMetadata('month', 'equals', month) //filter by month of interest
+      .filterBounds(conversion) //filter to HCP selection
+      .min());
+      
+  var pastmax_ndvi =  ee.Image(byMonthmax
+      .filterMetadata('month', 'equals', month) //filter by month of interest
+      .filterBounds(conversion) //filter to HCP selection
+      .max());
+
+  //The relative greeness equation (current - min / max - min) - creates relative greenness for previous year of interest
+  pastRelGre = ndvi_past.subtract(pastmin_ndvi).divide(pastmax_ndvi.subtract(pastmin_ndvi));
+  };
+
+  //call the function with previous year, month, and HCP selection as inputs
+  filterBaseLine(prevYr, mnth, conversion);
+  changeRelGreen = (ndviRelGre.subtract(pastRelGre)).divide(pastRelGre);
+  //add percent change in Relative Greenness to map
+  Map.addLayer(changeRelGreen.clip(conversion),{min:-1, max:1, palette: ['f1a340', 'FFFFFF', '556B2F']},'Percent Change Relative Green');
+  var changeColl = ee.ImageCollection(changeRelGreen); //makes image collection from percent change variable for exporting
+  col = ee.ImageCollection(col.merge(changeColl)); //merges with col variable
+  }
+});
+//END calcuating percent change in Relative Greenness//
+
+//BEGIN adding ancillary datasets to the map
+//Step 4: Add ancillary datasets to help explain change
+
+//BEGIN add NASS Cropland data
+//loads croplands data for 2008 - 2016
+var nass08 = ee.Image('USDA/NASS/CDL/2008');
+var nass09 = ee.Image('USDA/NASS/CDL/2009');
+var nass10 = ee.Image('USDA/NASS/CDL/2010');
+var nass11 = ee.Image('USDA/NASS/CDL/2011');
+var nass12 = ee.Image('USDA/NASS/CDL/2012');
+var nass13 = ee.Image('USDA/NASS/CDL/2013').select('cropland');
+var nass14 = ee.Image('USDA/NASS/CDL/2014').select('cropland');
+var nass15 = ee.Image('USDA/NASS/CDL/2015').select('cropland');
+var nass16 = ee.Image('USDA/NASS/CDL/2016').select('cropland');
+
+//Create drop-down to select cropland data layer to display
+var preseq;
+var onlypresent;
+var nass = ui.Select({
+    items: [
+      {label: '2016', value: nass16},
+      {label: '2015', value: nass15},
+      {label: '2014', value: nass14},
+      {label: '2013', value: nass13},
+      {label: '2012', value: nass12},
+      {label: '2011', value: nass11},
+      {label: '2010', value: nass10},
+      {label: '2009', value: nass09},
+      {label: '2008', value: nass08},],
+    placeholder: ('Choose Cropland Data by Year (2008-2016)'),
+    onChange: function(value){
+    //show cropland layer
+    var nalayer = ee.Image(value.clip(conversion));
+    var nalayerName = value.id().getInfo();
+    print(nalayerName, 'layer name');
+    Map.addLayer(nalayer, {}, 'Cropland ' + nalayerName); //add cropland data to map
+    
+    //convert croplands data to vector, this is used to identify the specific crop rather than raster value
+    var navector = nalayer.reduceToVectors({
+    geometry: conversion,
+    scale: 1000,
+    maxPixels: 1e13,
+    geometryType: 'polygon',
+    eightConnected: false,
+    labelProperty: 'Cropland_Type',
+      });
+    Map.addLayer(navector, {}, "Cropland Vectors - IGNORE", {}, 0); //sets vector layer to be transparent, so the user only sees the raster layer
+    
+    //converts the properties in the raster to lists
+    var vectsize = navector.size();
+    var vectlist = navector.toList(vectsize);
+    var croplandnames = ee.List(nalayer.get("cropland_class_names"));
+    var croplandvals = ee.List(nalayer.get("cropland_class_values"));
+    var crop_palettes = ee.List(nalayer.get("cropland_class_palette"));
+    var croplandcombo = croplandnames.zip(croplandvals);
+    var numcrops = ee.Number(croplandcombo.size());
+    var cropseq = ee.List.sequence(0,numcrops.subtract(1));
+    
+    function addCropland(callFeature)
+{
+  var curr = ee.Feature(callFeature);
+  var cropland = ee.Number(curr.get("Cropland_Type"));
+
+  var x = cropseq.map(findName);
+  
+  function findName(callNum)
+  {
+      var ind = ee.Number(callNum);
+      var elm = ee.List(croplandcombo.get(ind));
+      var cname = ee.String(elm.get(0));
+      var cval = ee.Number(elm.get(1));
+      
+      var check = ee.Algorithms.If(ee.Algorithms.IsEqual(cropland,cval),cname,0);
+      
+      return check;
+  }
+  
+  var allz = ee.List.repeat(0,135);
+  var remtest = x.removeAll(allz);
+  var cropkind = ee.String(remtest.get(0));
+  
+  
+  var findind = ee.Number(x.indexOf(cropkind));
+  var pal = crop_palettes.get(findind);
+
+
+  return curr.set('crop_type', cropkind).set('color',pal);
+}
+
+var tryaddcops = vectlist.map(addCropland);
+var featcollvect = ee.FeatureCollection(tryaddcops);
+
+//filters by cropland value
+//so that cropland of the same cropland value can be manipulated together
+function cropFilt(callEl)
+{
+  var curr = ee.Number(callEl);
+  var eachtype = featcollvect.filter(ee.Filter.eq('Cropland_Type',curr));
+  return eachtype.set('Cropland_Type', callEl);
+}
+
+var filtype = ee.FeatureCollection(croplandvals.map(cropFilt));
+
+var filttypesize = filtype.size();
+var filtypelist = filtype.toList(filttypesize);
+
+//then adds those properties to the overall feature collection of each cropland
+function addFCprops(callFC)
+{
+  var curr = ee.FeatureCollection(callFC);
+  var cropland = ee.Number(curr.get("Cropland_Type"));
+  var size = ee.Number(curr.size());
+
+  var x = cropseq.map(findName);
+  
+  function findName(callNum)
+  {
+      var ind = ee.Number(callNum);
+      var elm = ee.List(croplandcombo.get(ind));
+      var cname = ee.String(elm.get(0));
+      var cval = ee.Number(elm.get(1));
+      
+      var check = ee.Algorithms.If(ee.Algorithms.IsEqual(cropland,cval),cname,0);
+      
+      return check;
+  }
+  
+  var allz = ee.List.repeat(0,135);
+  var remtest = x.removeAll(allz);
+  var cropkind = ee.String(remtest.get(0));
+  
+  return curr.set('crop_type', cropkind).set('size', size);
+  
+}
+
+var byfc = ee.FeatureCollection(filtypelist.map(addFCprops));
+
+//returns feature collections that aren't empty, the croplands that are actually present
+//within the given HCP
+function isPres(callFC)
+{
+  var curr = ee.FeatureCollection(callFC);
+  var noempty = curr.filter(ee.Filter.greaterThan('size',0));
+  return noempty;
+}
+
+var fcnotempty = ee.FeatureCollection(isPres(byfc));
+
+var onlypresize = ee.Number(fcnotempty.size());
+onlypresent = fcnotempty.toList(onlypresize);
+preseq = ee.List.sequence(0,onlypresize.subtract(1));
+
+//Turns Cursor into crosshair during cropland layer selected that returns specific pixel selection
+Map.style().set('cursor', 'crosshair');
+var inspector = ui.Panel([ui.Label('Click to get cropland type')]);
+Map.add(inspector);
+
+Map.onClick(function(coords) {
+
+  inspector.widgets().set(0, ui.Label
+    ({
+      value: 'Loading...',
+      style: {color: 'gray'}
+    })
+    );
+    
+    //coords from the location where the cursor clicked
+    var point = ee.Geometry.Point(coords.lon, coords.lat);
+      
+    var x = preseq.map(isWithin);
+    
+    //finds and displays the name of the feature collection the point is contained within
+    
+    function isWithin(callInd)
+    {
+      var ind = ee.Number(callInd);
+      var curr = ee.FeatureCollection(onlypresent.get(callInd));
+      var tru = ee.Algorithms.If(point.containedIn(curr),ind,0);
+      return tru;
+    }
+    
+    var sortx = x.sort().reverse();
+    var getind = ee.Number(sortx.get(0));
+    
+    var geo = ee.FeatureCollection(onlypresent.get(getind));
+    var getValue = ee.String(geo.get('crop_type'));
+
+  function year1(result)
+  {
+    inspector.widgets().set(0, ui.Label({value: 'Cropland: ' +result,}));
+  }
+  
+  getValue.evaluate(year1);
+
+});
+    }
+});
+//END add NASS Cropland data//
+
+//BEGIN add NAIP Imagery//
+var naip = ui.Button({
+    label: ('National Agriculture Imagery Program Data'),
+    onClick: function(){
+  //user needs to select month and year of interest from 2010-2017
+  //create year and month variables
+  var yr;
+  var mnth;
+  //create function that will parse textbox inputs into Relative Greenness equations
+  function fillTextbox(){
+  //assign the varible 'yr' to the current string in the selectYr textbox 
+  yr = selectYr.getValue();
+  // if 'yr' is 'yr' then turn that string into a number
+  if (yr) yr = ee.Number.parse(yr);
+  mnth = selectMnth.getValue();
+  if (mnth) mnth = ee.Number.parse(mnth);
+  }
+  //run fillTextbox function
+  fillTextbox();
+
+  //adds NAIP collection
+  var icnaip = ee.ImageCollection('USDA/NAIP/DOQQ');
+  
+  //set the month and year properties in metadata to allow for searching
+  var naipCurrenttest = icnaip.map(function(img) { 
+    img = img.clip(conversion);
+    var d = ee.Date(ee.Number(img.get('system:time_start')));
+    var m = ee.Number(d.get('month'));
+    var y = ee.Number(d.get('year'));
+    return img.set({'month':m, 'year':y});
+    });
+  
+  var reducer = ee.Reducer.first();
+  //create mean NBR image from NBR current collection
+  var naipmean = ee.Image(naipCurrenttest
+      .filterMetadata('year', 'equals', yr)
+      //.filterMetadata('month', 'equals', mnth)
+      .filterBounds(conversion)
+      .median());
+
+      var naiplayer = ee.Image(naipmean.clip(conversion));
+      var naipcol = ee.ImageCollection(naiplayer);
+      col =  ee.ImageCollection(col.merge(naipcol)); 
+      Map.addLayer(naiplayer, {}, 'NAIP');
+}});
+//END add NAIP Imagery//
+
+//BEGIN calculate NBR//
+//create button to calculate NBR
+var NBR = ui.Button({
+  label: ('Calculate Normalized Burn Ratio'),
+  onClick: function()
+  {
+  //user needs to select month and year of interest from 2010-2017
+  //create year and month variables
+  var yr;
+  var mnth;
+  //create function that will parse textbox inputs into NBR calculation
+  function fillTextbox(){
+  //assign the varible 'yr' to the current string in the selectYr textbox 
+  yr = selectYr.getValue();
+  // if 'yr' is 'yr' then turn that string into a number
+  if (yr) yr = ee.Number.parse(yr);
+  mnth = selectMnth.getValue();
+  if (mnth) mnth = ee.Number.parse(mnth);
+  }
+  //run fillTextbox function
+  fillTextbox();
+  
+  //create current NBR image collection (2010-2017)
+  var NBRCurrent = ee.ImageCollection(LandsatCollection.filterDate('2010-01-01', '2017-12-31')
+    .filterBounds(conversion) //filter by HCP selection
+    .select('NBR')); //select NBR band
+  
+  //set the month and year properties in metadata to allow for searching
+  var NBRCurrenttest = NBRCurrent.map(function(img) { 
+    img = img.clip(conversion);
+    var d = ee.Date(ee.Number(img.get('system:time_start')));
+    var m = ee.Number(d.get('month'));
+    var y = ee.Number(d.get('year'));
+    return img.set({'month':m, 'year':y});
+    });
+  
+  //create mean NBR image from NBR current collection
+  var NBRmean = ee.Image(NBRCurrenttest
+      .filterMetadata('year', 'equals', yr)
+      //.filterMetadata('month', 'equals', mnth)
+      .filterBounds(conversion)
+      .mean());
+
+  //adds NBR output to map
+  Map.addLayer(NBRmean, {min:-0.35, max:-0.15, palette: ['FF0000', 'F2EAD8']}, 'NBR');
+  var NBRcoll = ee.ImageCollection(NBRmean); //adds NBR output to image collection for exporting
+  col = ee.ImageCollection(col.merge(NBRcoll)); //merge with col variable
+  }});
+
+//make a legend for NBR
+//list visualization parameters
+var LGND2 = {"opacity":1, "min":-0.35, "max":-0.15,
+      "palette":['FF0000', 'F2EAD8']};
+      
+//make a function for displaying NBR legend
+function makeLegend2(vis) {
+    var lon = ee.Image.pixelLonLat().select('longitude');
+    var gradient = lon.multiply((vis.max-vis.min)/100.0).add(vis.min);
+    var legendImage = gradient.visualize(vis);
+   
+    //Coefficient legend
+    var thumb2 = ui.Thumbnail({
+      image: legendImage, 
+      params: {bbox:'0,0,100,8', dimensions:'300x15'},  
+      style: {position: 'bottom-center'}
+    });
+    var text2 = ui.Panel({
+      widgets: [
+        ui.Label(String('Fire Likely')),
+        ui.Label({style: {stretch: 'horizontal'}}),
+        ui.Label(String('Fire Unlikely')),
+      ],
+      layout: ui.Panel.Layout.flow('horizontal'),
+      style: {
+        padding: '0px',
+        stretch: 'horizontal',
+        fontSize: '12px', 
+        color: 'gray',
+        textAlign: 'center'
+      }
+    });
+  
+    return ui.Panel({style:{position: 'bottom-left'}})
+      .add(text2).add(thumb2);
+  }
+//END calculate NBR//
+
+//BEGIN creating panel for the user interface//
+//Step 4: Create panel for user interface
+//Create master panel in which to arrange widgets
+var panel = ui.Panel({style: {width: '320px'}})
+    .add(ui.Label({
+    value: 'BETA: US Fish and Wildlife Service Change Detection Tool', //create title for whole UI
+    style: {fontWeight: 'bold', fontSize: '22px', color: '#228B22'}
+    })
+  );
+
+//Create drop-down for HCP selection
+var hcpbtn = ui.Panel({
+  widgets: [select], //include select widget
+  layout: ui.Panel.Layout.flow('vertical'),
+});
+
+//Create labels for step one and include HCP selection button  
+var stepone = ui.Panel({
+    widgets: [
+      ui.Label('1) Select Area of Interest', {fontWeight: 'bold'}), //title for Step 1
+      ui.Label('If your area of interest is not listed, contact support to get your area added.',
+        {fontSize: '12px'}),
+      ui.Label('Updating this selection will clear the map of all previous outputs.', {fontSize: '12px'}),
+      select, //adds HCP selection section
+    ],
+  });
+
+//create labels for step two
+var steptwo = ui.Panel({
+    widgets: [
+      ui.Label('2) Calculate Relative Greenness', {fontWeight: 'bold'}), //title for Step 2
+      ui.Label('Select year and month of interest for the Relative Greenness calculation.', {fontSize: '12px'}),
+    ],
+  });
+
+//create labels for year and month selections
+var stepTwoLabels = ui.Panel({
+  widgets: [
+    ui.Label('Year selection', {fontSize: '12px'}),
+    ui.Label({style: {stretch: 'horizontal'}}),
+    ui.Label('Month selection', {fontSize: '12px'}),
+  ],
+  layout: ui.Panel.Layout.flow('horizontal'),
+});
+
+//create panel with year and month selection textboxes
+var stepTwoText = ui.Panel({
+  widgets: [
+    selectYr,
+    ui.Label({style: {stretch: 'horizontal'}}),
+    selectMnth,
+  ],
+  layout: ui.Panel.Layout.flow('horizontal'),
+});
+
+//create panel with relative greenness calculation button and relative greenness legend
+var stepTwoAction = ui.Panel({
+  widgets: [load, makeLegend(LGND), percentChange]
+});
+
+//Create panel for step three and include cropland and NBR buttons
+var stepthree = ui.Panel({
+    widgets: [
+      ui.Label('3) Select Ancillary Products', {fontWeight: 'bold'}), //title for Step 3
+      NBR,
+      makeLegend2(LGND2),
+      nass,
+      naip,
+    ],
+  });
+  
+//BEGIN export function//
+//export button uses a combination of javascript and python
+var exprt = ui.Button({
+  label: 'Export Image',
+  onClick: function() {
+  print(col);
+  var ExportCol = function(col, folder, scale, type,
+                         nimg, maxPixels, region) {
+    type = type || "float";
+    nimg = nimg || 500;
+    scale = scale || 1000;
+    maxPixels = maxPixels || 1e10;
+    
+    var colList = col.toList(nimg);
+    var n = colList.size().getInfo();
+    
+    for (var i = 0; i < n; i++) {
+      var img = ee.Image(colList.get(i));
+      var name =  Map.layers().get(i)
+      var grab = name.get("name")
+      var month = ee.String(mnth).getInfo();
+      var year = ee.String(yr).getInfo();
+      region = region || img.geometry().bounds().getInfo()["coordinates"];
+      
+      var imgtype = {"float":img.toFloat(), 
+                     "byte":img.toByte(), 
+                     "int":img.toInt(),
+                     "double":img.toDouble()
+                    };
+      
+      Export.image.toDrive({
+        image:imgtype[type],
+        description: 'InsertProductName_'+month+'_'+year,
+        folder: folder,
+        fileNamePrefix: 'InsertProductName_'+month+'_'+year,
+        region: conversion,
+        scale: scale,
+        maxPixels: maxPixels});
+    }
+  };
+  ExportCol(col, "Land Use Change Detection Outputs", 30);
+}});
+//END export function//
+
+//create panel for step four
+var stepfour = ui.Panel({
+    widgets: [
+      ui.Label('4) Export the Displayed Derived Product', {fontWeight: 'bold'}), //title for Step 4
+      exprt,
+    ],
+  });
+
+//create panel for step five
+var stepfive = ui.Panel([
+  ui.Label({
+    value: '5) Chart',
+    style: {fontWeight: 'bold'}
+  }),
+  ui.Label('A chart will auto populate once relative green is calculated.')
+]);
+//END creating panel for the user interface//
+
+//BEGIN call functions to create user interface//
+panel.add(stepone); //add step one to panel
+panel.add(steptwo); //add step two to panel
+panel.add(stepTwoLabels); //add step two labels to panel
+panel.add(stepTwoText); //add step two text to panel
+panel.add(stepTwoAction); //add step two action to panel
+panel.add(stepthree); //add step three to panel
+panel.add(stepfour); //add step four to panel
+panel.add(stepfive); //add step five to panel
+ui.root.add(panel); //add panel to root
+//END call functions to create user interface//
