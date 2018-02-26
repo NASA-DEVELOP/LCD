@@ -1,10 +1,10 @@
-var l5 = ee.ImageCollection("LANDSAT/LT5_L1T_TOA_FMASK"),
-    l8 = ee.ImageCollection("LANDSAT/LC8_L1T_TOA_FMASK"),
-    l7 = ee.ImageCollection("LANDSAT/LE7_L1T_TOA_FMASK"),
+var l5 = ee.ImageCollection("LANDSAT/LT05/C01/T1_SR"),
+    l8 = ee.ImageCollection("LANDSAT/LC08/C01/T1_SR"),
+    l7 = ee.ImageCollection("LANDSAT/LE07/C01/T1_SR"),
     sentinel = ee.ImageCollection("COPERNICUS/S2");
 
-///US Fish and Wildlife Service Change Detection Tool///
-////////////////by: NASA DEVELOP///////////////////////
+///US Fish and Wildlife Service Change Detection Tool/// 
+////////////////by: NASA DEVELOP/////////////////////// 
 
 //a visual describing our product//
 /*                                                                          ,aa,       ,aa
@@ -87,27 +87,27 @@ var names = fc.aggregate_array('name');
 //Create mergeCollection function    
     var mergeCollection = function() {
     // list the bands as described in the metadata for each specific satelitte
-    var l5names = ee.List(["B1","B2","B3","B4","B5","B6","B7","fmask"]);
-    var l7names = ee.List(["B1","B2","B3","B4","B5","B6_VCID_1","B6_VCID_2","B7","B8","fmask"]);
-    var l8names = ee.List(["B1","B2","B3","B4","B5","B6","B7","B8","B9","B10","B11","BQA", "fmask"]);
-    var snames = ee.List(["B1","B2","B3","B4","B5","B6","B7","B8","B8A","B11","B12", 'QA60']);
+    var l5names = ee.List(["B1","B2","B3","B4","B5","B6","B7"]);
+    var l7names = ee.List(["B1","B2","B3","B4","B5","B6","B7"]);
+    var l8names = ee.List(["B1","B2","B3","B4","B5","B6","B7","B10","B11"]);
+    var snames = ee.List(["B1","B2","B3","B4","B5","B6","B7","B8","B8A","B11","B12"]);
      
     // list the common band names which will allow us to easily merge the bands
-    var l5Bands = ee.List(['blue','green','red','nir','swir1','tir','swir2','fmask']);
-    var l7Bands = ee.List(['blue','green','red','nir','swir1','tir1', 'tir2', 'swir2','pan','fmask']);
-    var l8Bands = ee.List(['b1','blue','green','red','nir','swir1','swir2','cir','tir1','tir2','pan','BQA', 'fmask']);
-    var sBands = ee.List(['aerosols','blue','green','red','red_edge1','red_edge2','red_edge3','nir','red_edge4','swir1','swir2', 'QA60']);
+    var l5Bands = ee.List(['blue','green','red','nir','swir1','thermal1','swir2']);
+    var l7Bands = ee.List(['blue','green','red','nir','swir1','thermal1', 'swir2']);
+    var l8Bands = ee.List(['b1','blue','green','red','nir','swir1','swir2','thermal1','thermal2']);
+    var sBands = ee.List(['aerosols','blue','green','red','red_edge1','red_edge2','red_edge3','nir','red_edge4','swir1','swir2']);
     
     //create a cloud masking function for Landsat
-    var applyMask = function(image) {
-      return image.updateMask(image.select('fmask').lt(2));};
+    //var applyMask = function(image) {
+   //   return image.updateMask(image.select('fmask').lt(2));};
     
     //create a cloud masking function for Sentinel-2
-    var sentMask = function(im) {
+   // var sentMask = function(im) {
     // Opaque and cirrus cloud masks cause bits 10 and 11 in QA60 to be set, so values less than 1024 are cloud-free
-      var mask = ee.Image(0).where(im.select('QA60').gte(1024), 1).not();
-      return im.updateMask(mask);
-      };
+   //   var mask = ee.Image(0).where(im.select('QA60').gte(1024), 1).not();
+   //   return im.updateMask(mask);
+   //   };
     
     //BEGIN the creation of new bands to add to our merged imageCollection//
     //create NDVI function
@@ -128,19 +128,19 @@ var names = fc.aggregate_array('name');
     
     // Change the bands to common band names so that they are searchable across the different collections
     var l5images = l5.select(l5names, l5Bands)
-      .map(applyMask)
+      //.map(applyMask)
       .map(makeNDVI)
       .map(makeNBR);
     var l7images = l7.select(l7names, l7Bands)
-      .map(applyMask)
+     // .map(applyMask)
       .map(makeNDVI)
       .map(makeNBR);
     var l8images = l8.select(l8names, l8Bands)
-      .map(applyMask)
+      //.map(applyMask)
       .map(makeNDVI)
       .map(makeNBR);
     var sentImages = sentinel.select(snames, sBands)
-      .map(sentMask)
+      //.map(sentMask)
       .map(makeNDVI)
       .map(makeNBR);
     
@@ -223,7 +223,7 @@ var select = ui.Select({
 
 //create year and month selection textboxes
 var selectYr = ui.Textbox({placeholder: 'Year',  value: '2016',
-    style: {width: '100px'}}); //defaults to 2016, textbox displays ‘Year’ if textbox is empty 
+    style: {width: '100px'}}); //defaults to 2016, textbox displays Â‘YearÂ’ if textbox is empty 
 var selectMnth = ui.Textbox({placeholder: 'Month', value: '2',
     style: {width: '100px'}});
     
